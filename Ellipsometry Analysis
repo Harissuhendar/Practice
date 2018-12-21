@@ -1,0 +1,150 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 27 16:49:08 2018
+
+@author: Haris
+"""
+
+import numpy as np
+import pandas as pd
+from scipy.optimize import curve_fit
+import cmath as cm
+import matplotlib.pyplot as plt
+
+# <--- SET THE VALUE OF THESE VARIABLES --->
+# Specify the directory or leave it as an empty string
+DIRECTORY = 'D:/Project/Research/QCM/Ellipsometry/Ellipsometri 2nd round/GO_1_70 deg'
+# Specify number of digit of the file counter inside the {}
+FILE_NAME = 'USB2G525741_{0:0=2d}.txt'
+FILE_COUNTER_FROM = 1
+FILE_COUNTER_TO = 37
+POLARIZER_ANGLE = np.radians(45)
+ANGLE_OF_INCIDENT = np.radians(70)
+# <--- THAT'S ALL --->
+
+
+#SAVE_INTENSITY_TO = DIRECTORY + '/' + r'np data.txt'
+#SAVE_WAVELENGTH_TO = DIRECTORY + '/' + r'np wavelength.txt'
+#SAVE_FITTING_TO = DIRECTORY + '/' + r'fitting.txt'
+SAVE_PSI_DELTA_TO = DIRECTORY + '/' + ' Psi Delta.txt'
+#SAVE_MATRIX_RHO_TO = DIRECTORY + '/' + r'np matrix rho.txt'
+FILE_PATH = DIRECTORY + '/' + FILE_NAME
+SAVE_FIG = DIRECTORY + '/'
+
+all_data = []
+wavelength = []
+
+for file_number in range(FILE_COUNTER_FROM, FILE_COUNTER_TO + 1):
+    # Read each file
+    files = open(FILE_PATH.format(file_number), 'r').read()
+    # Split every line & store it into an array
+    data = files.split('\n')
+    # Strip out unnecessary text
+    data[:] = data[16:-1]
+    # Save analyzer's angle in the first column
+    intensity = [180 / (FILE_COUNTER_TO - FILE_COUNTER_FROM) * (file_number - 1)]
+    for i in range(0, len(data)):
+        # Split every tab character and store it into sub arrays
+        data[i] = data[i].split('\t')
+        # Data of each row
+        intensity.append(float(data[i][1]))
+        # Create an array of wavelength
+        if file_number == FILE_COUNTER_FROM:
+            wavelength.append(data[i][0])
+    # Append all rows
+    all_data.append(intensity)
+
+# save all data into a np array
+np_data = np.array(all_data)
+# save wavelength from string to be a float
+wavelength = list(map(float, wavelength))
+
+#Save np_data into DataFrame
+Data = pd.DataFrame(np_data)
+
+#Define function
+def f(A, Io, a, b):
+    I = Io + a*np.cos(2*A*2*np.pi/360) + b*np.sin(2*A*2*np.pi/360)
+    return I
+
+#assign empty list
+alpha = []
+beta = []
+Intensitas = []
+Psi = []
+Delta = []
+
+#find Io, a, b constant in define function by fitting the function
+for i in range(len(Data.columns)-1):
+    params, extras = curve_fit(f, Data[0], Data[i+1])
+    a1 =  params[0]
+    a2 = params[1]/params[0]
+    a3 = params[2]/params[0]
+    Y = cm.atan(cm.sqrt((1 + a2)/(1 - a2)) * abs(cm.tan(POLARIZER_ANGLE*np.pi/180)))
+    D = cm.acos(a3/cm.sqrt(1 - a2**2))
+    Intensitas.append(a1)
+    alpha.append(a2)
+    beta.append(a3)
+    Psi.append(Y.real*(180/np.pi))
+    Delta.append(D.real*(180/np.pi)) 
+
+
+#plot Psi and Delta vs wavelength    
+plt.xlabel("wavelength")
+plt.ylabel("Value")
+plt.axis([200, 800, -2, 100])
+plt.plot(wavelength, Psi, "r", wavelength, Delta,"b")
+plt.legend(["Psi", "Delta"])
+plt.savefig(SAVE_FIG + "Psi_Delta_Graph.png")
+plt.show()
+
+rho = []
+
+for i in range(len(Psi)):
+    ro = cm.tan(np.radians(Psi[i]))*cm.exp(-1j*np.radians(Delta[i]))
+    rho.append(ro)
+
+def fungsi(rho, N1, No, teta):
+    r_atas = (No**2 * cm.sin(teta))**2 - np.sqrt(N1**2 - No**2 * (cm.sin(teta))**2)
+    r_bawah = (No**2 * cm.sin(teta))**2 + np.sqrt(N1**2 - No**2 * (cm.sin(teta))**2)
+    val = rho - (r_atas/r_bawah)
+    return val
+
+#def diff(N1, No, teta):
+    #up = (cm.cos(teta) * (N1**2 - No**2 * (cm.sin(teta))**2)**(1/2)) - (No * (cm.sin(teta))**2)
+    #bottom = (cm.cos(teta) * (N1**2 - No**2 * (cm.sin(teta))**2)**(1/2)) + (No * (cm.sin(teta))**2)
+    #dif = N1 * cm.cos(teta) * (N1**2 - No**2 * (cm.sin(teta))**2)**(-1/2) 
+    #return dif * (bottom - up)/(bottom)**2
+
+def turun(rho, N1, No, Teta):
+    trn = (fungsi(rho, (N1 + complex(0.1, 0.1)), No, teta) - fungsi(rho, N1, No, teta))/complex(0.01, 0.01)
+    return trn
+
+tol = 0.01
+teta = ANGLE_OF_INCIDENT
+No = 1
+N = []
+
+for i in range(100, len(rho)):
+    N1 = 3 + 1j*1
+    for j in range(1000):
+        N1_next = N1 - ((fungsi(rho[i], N1, No, teta))/(turun(rho[i], N1, No, teta)))
+        result = fungsi(rho[i], N1_next, No, teta)
+        N1 = N1_next
+        if abs(result) < tol and j < 1000 :
+            N.append(N1_next)
+            break
+
+#plt.plot(wavelength, n, "o")
+#plt.xlabel("wavelength")
+#plt.ylabel("Real_N")
+#plt.xlim(300,800)
+#plt.savefig(SAVE_FIG + "N_Real_Graph.png")
+#plt.show()
+
+#plt.plot(wavelength, k, "o")
+#plt.xlabel("wavelength")
+#plt.ylabel("Imag_N")
+#plt.xlim(300,800)
+#plt.savefig(SAVE_FIG + "N_Imaginer_Graph.png")
+#plt.show()
